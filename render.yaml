@@ -3,3 +3,14 @@ services:
     name: testify-bot
     env: docker
     dockerfilePath: ./Dockerfile
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_ID
+        sync: false
+      - key: WEBHOOK_HOST
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: PORT
+        value: "8080"
