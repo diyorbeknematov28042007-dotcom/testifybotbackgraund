@@ -1,127 +1,158 @@
-import aiosqlite
+import asyncpg
 import os
+from dotenv import load_dotenv
 
-DB_PATH = "bot.db"
+load_dotenv()
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+_pool = None
+
+
+async def get_pool():
+    global _pool
+    if _pool is None:
+        _pool = await asyncpg.create_pool(DATABASE_URL, ssl="require")
+    return _pool
+
 
 async def init_db():
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY,
-                user_id INTEGER UNIQUE NOT NULL,
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT UNIQUE NOT NULL,
                 username TEXT,
                 full_name TEXT,
-                joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                joined_at TIMESTAMP DEFAULT NOW()
             )
         """)
-        await db.execute("""
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS admins (
-                id INTEGER PRIMARY KEY,
-                user_id INTEGER UNIQUE NOT NULL,
-                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT UNIQUE NOT NULL,
+                added_at TIMESTAMP DEFAULT NOW()
             )
         """)
-        await db.execute("""
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS channels (
-                id INTEGER PRIMARY KEY,
+                id SERIAL PRIMARY KEY,
                 channel_id TEXT UNIQUE NOT NULL,
                 channel_name TEXT,
-                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                added_at TIMESTAMP DEFAULT NOW()
             )
         """)
-        await db.execute("""
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT
             )
         """)
-        await db.commit()
+        await conn.execute("""
+            INSERT INTO settings (key, value)
+            VALUES ('welcome_text', 'Botga xush kelibsiz! 🎉'), ('welcome_buttons', '[]')
+            ON CONFLICT (key) DO NOTHING
+        """)
 
-    # Default settings
-    await set_setting("welcome_text", "Botga xush kelibsiz! 🎉")
-    await set_setting("welcome_buttons", "[]")
 
 async def add_user(user_id: int, username: str, full_name: str):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            INSERT OR IGNORE INTO users (user_id, username, full_name)
-            VALUES (?, ?, ?)
-        """, (user_id, username, full_name))
-        await db.commit()
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO users (user_id, username, full_name)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (user_id) DO NOTHING
+        """, user_id, username, full_name)
+
 
 async def get_user_count() -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT COUNT(*) FROM users") as cur:
-            row = await cur.fetchone()
-            return row[0] if row else 0
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval("SELECT COUNT(*) FROM users")
+
 
 async def get_today_count() -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval("""
             SELECT COUNT(*) FROM users
-            WHERE DATE(joined_at) = DATE('now')
-        """) as cur:
-            row = await cur.fetchone()
-            return row[0] if row else 0
+            WHERE joined_at::date = CURRENT_DATE
+        """)
+
 
 async def get_all_users():
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT user_id FROM users") as cur:
-            rows = await cur.fetchall()
-            return [r[0] for r in rows]
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT user_id FROM users")
+        return [r["user_id"] for r in rows]
+
 
 async def is_admin(user_id: int) -> bool:
     main_admin = int(os.getenv("ADMIN_ID", "0"))
     if user_id == main_admin:
         return True
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT 1 FROM admins WHERE user_id = ?", (user_id,)) as cur:
-            return await cur.fetchone() is not None
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT 1 FROM admins WHERE user_id = $1", user_id)
+        return row is not None
+
 
 async def add_admin(user_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (user_id,))
-        await db.commit()
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO admins (user_id) VALUES ($1)
+            ON CONFLICT (user_id) DO NOTHING
+        """, user_id)
+
 
 async def remove_admin(user_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
-        await db.commit()
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM admins WHERE user_id = $1", user_id)
+
 
 async def get_admins():
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT user_id FROM admins") as cur:
-            rows = await cur.fetchall()
-            return [r[0] for r in rows]
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT user_id FROM admins")
+        return [r["user_id"] for r in rows]
+
 
 async def add_channel(channel_id: str, channel_name: str):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            INSERT OR IGNORE INTO channels (channel_id, channel_name)
-            VALUES (?, ?)
-        """, (channel_id, channel_name))
-        await db.commit()
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO channels (channel_id, channel_name)
+            VALUES ($1, $2)
+            ON CONFLICT (channel_id) DO NOTHING
+        """, channel_id, channel_name)
+
 
 async def remove_channel(channel_id: str):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("DELETE FROM channels WHERE channel_id = ?", (channel_id,))
-        await db.commit()
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM channels WHERE channel_id = $1", channel_id)
+
 
 async def get_channels():
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT channel_id, channel_name FROM channels") as cur:
-            rows = await cur.fetchall()
-            return [{"id": r[0], "name": r[1]} for r in rows]
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT channel_id, channel_name FROM channels")
+        return [{"id": r["channel_id"], "name": r["channel_name"]} for r in rows]
+
 
 async def set_setting(key: str, value: str):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)
-        """, (key, value))
-        await db.commit()
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO settings (key, value) VALUES ($1, $2)
+            ON CONFLICT (key) DO UPDATE SET value = $2
+        """, key, value)
+
 
 async def get_setting(key: str, default: str = "") -> str:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT value FROM settings WHERE key = ?", (key,)) as cur:
-            row = await cur.fetchone()
-            return row[0] if row else default
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT value FROM settings WHERE key = $1", key)
+        return row["value"] if row else default
