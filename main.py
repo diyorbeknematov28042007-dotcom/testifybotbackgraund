@@ -16,7 +16,7 @@ from handlers import user, admin
 load_dotenv()
 
 TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_HOST = os.getenv("WEBHOOK_HOST")  # https://your-app.onrender.com
+WEBHOOK_HOST = os.getenv("WEBHOOK_HOST")
 WEBHOOK_PATH = f"/webhook/{TOKEN}"
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 PORT = int(os.getenv("PORT", 8080))
@@ -33,6 +33,10 @@ async def on_startup(bot: Bot):
 
 async def on_shutdown(bot: Bot):
     await bot.delete_webhook()
+
+
+async def health(request):
+    return web.Response(text="OK")
 
 
 def create_app():
@@ -54,6 +58,11 @@ def create_app():
 
     # Web app
     app = web.Application()
+
+    # Health check
+    app.router.add_get('/health', health)
+    app.router.add_get('/', health)
+
     handler = SimpleRequestHandler(dispatcher=dp, bot=bot)
     handler.register(app, path=WEBHOOK_PATH)
     setup_application(app, dp, bot=bot)
