@@ -10,7 +10,7 @@ from database import (
     get_all_users, add_admin, remove_admin, get_admins,
     add_channel, remove_channel, get_channels,
     get_setting, set_setting,
-    add_tariff, get_tariffs, delete_tariff, format_price if False else str
+    add_tariff, get_tariffs, delete_tariff
 )
 
 router = Router()
