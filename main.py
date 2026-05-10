@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 from database import init_db
 from middlewares import RegisterMiddleware
-from handlers import user, admin
+from handlers import user, admin, payment
 
 load_dotenv()
 
@@ -43,6 +43,7 @@ def create_app():
     dp.message.middleware(RegisterMiddleware())
     dp.callback_query.middleware(RegisterMiddleware())
 
+    dp.include_router(payment.router)
     dp.include_router(user.router)
     dp.include_router(admin.router)
 
