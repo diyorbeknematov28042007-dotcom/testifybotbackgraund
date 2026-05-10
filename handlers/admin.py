@@ -9,10 +9,14 @@ from database import (
     is_admin, get_user_count, get_today_count, get_week_count, get_month_count,
     get_all_users, add_admin, remove_admin, get_admins,
     add_channel, remove_channel, get_channels,
-    get_setting, set_setting
+    get_setting, set_setting,
+    add_tariff, get_tariffs, delete_tariff, format_price if False else str
 )
 
 router = Router()
+
+
+def fmt(amount): return f"{amount:,}".replace(",", " ")
 
 
 class AdminStates(StatesGroup):
@@ -23,6 +27,12 @@ class AdminStates(StatesGroup):
     edit_welcome_buttons = State()
     edit_payment_text = State()
     edit_payment_admin = State()
+    edit_card = State()
+    add_tariff_name = State()
+    add_tariff_desc = State()
+    add_tariff_price = State()
+    add_tariff_public = State()
+    add_tariff_private = State()
 
 
 def admin_menu() -> InlineKeyboardMarkup:
@@ -30,7 +40,8 @@ def admin_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📢 Ommaviy post", callback_data="admin_broadcast")],
         [InlineKeyboardButton(text="📊 Monitoring", callback_data="admin_stats")],
         [InlineKeyboardButton(text="✏️ Salomlashuv postini tahrirlash", callback_data="admin_welcome")],
-        [InlineKeyboardButton(text="💳 To'lov funksiyasini tahrirlash", callback_data="admin_payment")],
+        [InlineKeyboardButton(text="💳 Karta sozlamalari", callback_data="admin_card")],
+        [InlineKeyboardButton(text="📦 Tariflarni boshqarish", callback_data="admin_tariffs")],
         [InlineKeyboardButton(text="📋 Kanallar", callback_data="admin_channels")],
         [InlineKeyboardButton(text="👥 Adminlar", callback_data="admin_admins")],
     ])
@@ -53,7 +64,7 @@ async def admin_panel(msg: Message):
     await msg.answer("🛠 <b>Admin panel</b>", reply_markup=admin_menu(), parse_mode="HTML")
 
 
-# ── MONITORING ──
+# ── STATS ──
 @router.callback_query(F.data == "admin_stats")
 async def stats_handler(call: CallbackQuery):
     if not await check_admin(call.from_user.id, call):
@@ -62,13 +73,12 @@ async def stats_handler(call: CallbackQuery):
     today = await get_today_count()
     week = await get_week_count()
     month = await get_month_count()
-
     text = (
         f"📊 <b>Monitoring</b>\n\n"
-        f"👥 Jami foydalanuvchilar: <b>{total}</b>\n"
+        f"👥 Jami: <b>{total}</b>\n"
         f"🆕 Bugun: <b>{today}</b>\n"
-        f"📅 Hafta ichida: <b>{week}</b>\n"
-        f"📆 Oy ichida: <b>{month}</b>"
+        f"📅 Hafta: <b>{week}</b>\n"
+        f"📆 Oy: <b>{month}</b>"
     )
     await call.message.edit_text(text, parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -85,11 +95,8 @@ async def broadcast_start(call: CallbackQuery, state: FSMContext):
         return
     await state.set_state(AdminStates.broadcast)
     await call.message.edit_text(
-        "📢 <b>Ommaviy post</b>\n\n"
-        "Xabar, rasm, video yoki hujjat yuboring:\n\n"
-        "/cancel — bekor qilish",
-        parse_mode="HTML", reply_markup=None
-    )
+        "📢 <b>Ommaviy post</b>\n\nXabar yuboring:\n\n/cancel — bekor qilish",
+        parse_mode="HTML", reply_markup=None)
     await call.answer()
 
 
@@ -100,32 +107,25 @@ async def broadcast_send(msg: Message, state: FSMContext):
     total = len(users)
     sent = 0
     failed = 0
-
     progress_msg = await msg.answer(f"📤 Yuborilmoqda: 0/{total}")
-
     for i, user_id in enumerate(users):
         try:
             await msg.copy_to(user_id)
             sent += 1
         except Exception:
             failed += 1
-
         if (i + 1) % 20 == 0:
             try:
                 await progress_msg.edit_text(f"📤 Yuborilmoqda: {i+1}/{total}")
             except Exception:
                 pass
         await asyncio.sleep(0.05)
-
     await progress_msg.edit_text(
-        f"✅ <b>Post yuborildi!</b>\n\n"
-        f"📨 Yuborildi: <b>{sent}</b>\n"
-        f"❌ Xato: <b>{failed}</b>",
+        f"✅ <b>Tayyor!</b>\n📨 Yuborildi: <b>{sent}</b>\n❌ Xato: <b>{failed}</b>",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="◀️ Admin panel", callback_data="admin_back")]
-        ])
-    )
+        ]))
 
 
 # ── SALOMLASHUV ──
@@ -135,15 +135,13 @@ async def welcome_menu(call: CallbackQuery):
         return
     text = await get_setting("welcome_text")
     await call.message.edit_text(
-        f"✏️ <b>Salomlashuv postini tahrirlash</b>\n\n"
-        f"<b>Hozirgi matn:</b>\n{text}",
+        f"✏️ <b>Salomlashuv</b>\n\n<b>Hozirgi:</b>\n{text}",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✏️ Matnni tahrirlash", callback_data="edit_welcome_text")],
             [InlineKeyboardButton(text="🔗 Tugmalarni tahrirlash", callback_data="edit_welcome_buttons")],
             [InlineKeyboardButton(text="◀️ Orqaga", callback_data="admin_back")],
-        ])
-    )
+        ]))
     await call.answer()
 
 
@@ -153,22 +151,17 @@ async def edit_welcome_text_start(call: CallbackQuery, state: FSMContext):
         return
     await state.set_state(AdminStates.edit_welcome_text)
     await call.message.edit_text(
-        "✏️ Yangi salomlashuv matnini yuboring:\n\n"
-        "<i>HTML format: &lt;b&gt;bold&lt;/b&gt;, &lt;i&gt;italic&lt;/i&gt;, &lt;a href='url'&gt;link&lt;/a&gt;</i>\n\n"
-        "/cancel — bekor qilish",
-        parse_mode="HTML", reply_markup=None
-    )
+        "✏️ Yangi salomlashuv matnini yuboring:\n\n/cancel — bekor qilish",
+        parse_mode="HTML", reply_markup=None)
     await call.answer()
 
 
 @router.message(AdminStates.edit_welcome_text)
 async def edit_welcome_text_save(msg: Message, state: FSMContext):
     await state.clear()
-    await set_setting("welcome_text", msg.text or msg.caption or "Xush kelibsiz!")
-    await msg.answer("✅ Salomlashuv matni yangilandi!",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="◀️ Admin panel", callback_data="admin_back")]
-        ]))
+    await set_setting("welcome_text", msg.text or "Xush kelibsiz!")
+    await msg.answer("✅ Yangilandi!", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Admin panel", callback_data="admin_back")]]))
 
 
 @router.callback_query(F.data == "edit_welcome_buttons")
@@ -178,13 +171,10 @@ async def edit_welcome_buttons_start(call: CallbackQuery, state: FSMContext):
     await state.set_state(AdminStates.edit_welcome_buttons)
     current = await get_setting("welcome_buttons", "[]")
     await call.message.edit_text(
-        "🔗 <b>Tugmalarni tahrirlash</b>\n\n"
-        "JSON formatda yuboring:\n"
-        '<pre>[{"text": "Sayt", "url": "https://testfyedu.online"}, {"text": "Bot", "url": "https://t.me/bot"}]</pre>\n\n'
-        f"<b>Hozirgi:</b>\n<code>{current}</code>\n\n"
-        "/cancel — bekor qilish",
-        parse_mode="HTML", reply_markup=None
-    )
+        f"🔗 JSON formatda tugmalar:\n"
+        f'<pre>[{{"text": "Sayt", "url": "https://testifyuz.online"}}]</pre>\n\n'
+        f"<b>Hozirgi:</b>\n<code>{current}</code>\n\n/cancel — bekor qilish",
+        parse_mode="HTML", reply_markup=None)
     await call.answer()
 
 
@@ -192,90 +182,183 @@ async def edit_welcome_buttons_start(call: CallbackQuery, state: FSMContext):
 async def edit_welcome_buttons_save(msg: Message, state: FSMContext):
     await state.clear()
     try:
-        data = json.loads(msg.text)
-        if not isinstance(data, list):
-            raise ValueError
+        json.loads(msg.text)
         await set_setting("welcome_buttons", msg.text)
-        await msg.answer("✅ Tugmalar yangilandi!",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="◀️ Admin panel", callback_data="admin_back")]
-            ]))
+        await msg.answer("✅ Tugmalar yangilandi!", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Admin panel", callback_data="admin_back")]]))
     except Exception:
-        await msg.answer(
-            "❌ JSON format noto'g'ri!\n\n"
-            "Misol:\n"
-            '<code>[{"text": "Sayt", "url": "https://testfyedu.online"}]</code>',
-            parse_mode="HTML"
-        )
+        await msg.answer("❌ JSON format noto'g'ri!")
 
 
-# ── TO'LOV FUNKSIYASI ──
-@router.callback_query(F.data == "admin_payment")
-async def payment_menu(call: CallbackQuery):
+# ── KARTA ──
+@router.callback_query(F.data == "admin_card")
+async def card_menu(call: CallbackQuery):
     if not await check_admin(call.from_user.id, call):
         return
-    payment_text = await get_setting("payment_text")
-    payment_admin = await get_setting("payment_admin", "@admin")
+    card = await get_setting("payment_card", "")
+    owner = await get_setting("payment_card_owner", "")
     await call.message.edit_text(
-        f"💳 <b>To'lov funksiyasini tahrirlash</b>\n\n"
-        f"<b>Admin username:</b> {payment_admin}\n\n"
-        f"<b>Hozirgi matn:</b>\n{payment_text}",
+        f"💳 <b>Karta sozlamalari</b>\n\n"
+        f"Karta: <code>{card}</code>\n"
+        f"Egasi: <b>{owner}</b>",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✏️ Matnni tahrirlash", callback_data="edit_payment_text")],
-            [InlineKeyboardButton(text="👤 Admin username", callback_data="edit_payment_admin")],
+            [InlineKeyboardButton(text="✏️ Karta raqamini o'zgartirish", callback_data="edit_card_number")],
+            [InlineKeyboardButton(text="✏️ Egasini o'zgartirish", callback_data="edit_card_owner")],
             [InlineKeyboardButton(text="◀️ Orqaga", callback_data="admin_back")],
-        ])
-    )
+        ]))
     await call.answer()
 
 
-@router.callback_query(F.data == "edit_payment_text")
-async def edit_payment_text_start(call: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data == "edit_card_number")
+async def edit_card_number(call: CallbackQuery, state: FSMContext):
     if not await check_admin(call.from_user.id, call):
         return
-    await state.set_state(AdminStates.edit_payment_text)
-    await call.message.edit_text(
-        "💳 Yangi to'lov matnini yuboring:\n\n"
-        "/cancel — bekor qilish",
-        parse_mode="HTML", reply_markup=None
-    )
+    await state.set_state(AdminStates.edit_card)
+    await state.update_data(card_field="payment_card")
+    await call.message.edit_text("💳 Yangi karta raqamini yuboring:\n\nMisol: <code>9860123456789012</code>\n\n/cancel",
+        parse_mode="HTML", reply_markup=None)
     await call.answer()
 
 
-@router.message(AdminStates.edit_payment_text)
-async def edit_payment_text_save(msg: Message, state: FSMContext):
-    await state.clear()
-    await set_setting("payment_text", msg.text or "")
-    await msg.answer("✅ To'lov matni yangilandi!",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="◀️ Admin panel", callback_data="admin_back")]
-        ]))
-
-
-@router.callback_query(F.data == "edit_payment_admin")
-async def edit_payment_admin_start(call: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data == "edit_card_owner")
+async def edit_card_owner(call: CallbackQuery, state: FSMContext):
     if not await check_admin(call.from_user.id, call):
         return
-    await state.set_state(AdminStates.edit_payment_admin)
-    await call.message.edit_text(
-        "👤 Admin Telegram username yuboring:\n\n"
-        "Misol: <code>@username</code>\n\n"
-        "/cancel — bekor qilish",
-        parse_mode="HTML", reply_markup=None
-    )
+    await state.set_state(AdminStates.edit_card)
+    await state.update_data(card_field="payment_card_owner")
+    await call.message.edit_text("👤 Karta egasining ismini yuboring:\n\n/cancel",
+        reply_markup=None)
     await call.answer()
 
 
-@router.message(AdminStates.edit_payment_admin)
-async def edit_payment_admin_save(msg: Message, state: FSMContext):
+@router.message(AdminStates.edit_card)
+async def edit_card_save(msg: Message, state: FSMContext):
+    data = await state.get_data()
     await state.clear()
-    username = msg.text.strip()
-    await set_setting("payment_admin", username)
-    await msg.answer(f"✅ Admin username yangilandi: {username}",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="◀️ Admin panel", callback_data="admin_back")]
-        ]))
+    await set_setting(data["card_field"], msg.text.strip())
+    await msg.answer("✅ Yangilandi!", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Admin panel", callback_data="admin_back")]]))
+
+
+# ── TARIFLAR ──
+@router.callback_query(F.data == "admin_tariffs")
+async def tariffs_list(call: CallbackQuery):
+    if not await check_admin(call.from_user.id, call):
+        return
+    tariffs = await get_tariffs(only_active=False)
+    text = "📦 <b>Tariflar</b>\n\n"
+    if tariffs:
+        for t in tariffs:
+            status = "✅" if t["is_active"] else "❌"
+            text += (f"{status} <b>{t['name']}</b> — {fmt(t['price'])} so'm\n"
+                     f"   +{t['public_limit']} ommaviy / +{t['private_limit']} shaxsiy\n\n")
+    else:
+        text += "Hali tarif yo'q"
+
+    buttons = [[InlineKeyboardButton(text="➕ Tarif qo'shish", callback_data="tariff_add")]]
+    if tariffs:
+        buttons.append([InlineKeyboardButton(text="🗑 Tarif o'chirish", callback_data="tariff_delete")])
+    buttons.append([InlineKeyboardButton(text="◀️ Orqaga", callback_data="admin_back")])
+
+    await call.message.edit_text(text, parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    await call.answer()
+
+
+@router.callback_query(F.data == "tariff_add")
+async def tariff_add_start(call: CallbackQuery, state: FSMContext):
+    if not await check_admin(call.from_user.id, call):
+        return
+    await state.set_state(AdminStates.add_tariff_name)
+    await call.message.edit_text("📦 Tarif nomini yuboring:\n\nMisol: <b>Pro</b>\n\n/cancel",
+        parse_mode="HTML", reply_markup=None)
+    await call.answer()
+
+
+@router.message(AdminStates.add_tariff_name)
+async def tariff_name(msg: Message, state: FSMContext):
+    await state.update_data(name=msg.text.strip())
+    await state.set_state(AdminStates.add_tariff_desc)
+    await msg.answer("📝 Tavsifini yuboring:\n\nMisol: <b>5 ta ommaviy test</b>\n\n/cancel", parse_mode="HTML")
+
+
+@router.message(AdminStates.add_tariff_desc)
+async def tariff_desc(msg: Message, state: FSMContext):
+    await state.update_data(description=msg.text.strip())
+    await state.set_state(AdminStates.add_tariff_price)
+    await msg.answer("💰 Narxini so'mda yuboring:\n\nMisol: <b>50000</b>\n\n/cancel", parse_mode="HTML")
+
+
+@router.message(AdminStates.add_tariff_price)
+async def tariff_price(msg: Message, state: FSMContext):
+    try:
+        price = int(msg.text.strip().replace(" ", ""))
+        await state.update_data(price=price)
+        await state.set_state(AdminStates.add_tariff_public)
+        await msg.answer("📊 Nechta <b>ommaviy</b> test limiti qo'shilsin?\n\nMisol: <b>5</b>\n\n/cancel", parse_mode="HTML")
+    except ValueError:
+        await msg.answer("❌ Faqat raqam kiriting!")
+
+
+@router.message(AdminStates.add_tariff_public)
+async def tariff_public(msg: Message, state: FSMContext):
+    try:
+        public = int(msg.text.strip())
+        await state.update_data(public_limit=public)
+        await state.set_state(AdminStates.add_tariff_private)
+        await msg.answer("📊 Nechta <b>shaxsiy</b> test limiti qo'shilsin?\n\nMisol: <b>2</b>\n\n/cancel", parse_mode="HTML")
+    except ValueError:
+        await msg.answer("❌ Faqat raqam kiriting!")
+
+
+@router.message(AdminStates.add_tariff_private)
+async def tariff_private(msg: Message, state: FSMContext):
+    try:
+        private = int(msg.text.strip())
+        data = await state.get_data()
+        await state.clear()
+        tariff = await add_tariff(
+            name=data["name"],
+            description=data["description"],
+            price=data["price"],
+            public_limit=data["public_limit"],
+            private_limit=private
+        )
+        await msg.answer(
+            f"✅ <b>Tarif qo'shildi!</b>\n\n"
+            f"📦 Nom: <b>{tariff['name']}</b>\n"
+            f"💰 Narx: <b>{fmt(tariff['price'])} so'm</b>\n"
+            f"📊 +{tariff['public_limit']} ommaviy / +{tariff['private_limit']} shaxsiy",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="◀️ Admin panel", callback_data="admin_back")]]))
+    except ValueError:
+        await msg.answer("❌ Faqat raqam kiriting!")
+
+
+@router.callback_query(F.data == "tariff_delete")
+async def tariff_delete_list(call: CallbackQuery):
+    if not await check_admin(call.from_user.id, call):
+        return
+    tariffs = await get_tariffs(only_active=True)
+    buttons = [[InlineKeyboardButton(
+        text=f"🗑 {t['name']} — {fmt(t['price'])} so'm",
+        callback_data=f"del_tariff:{t['id']}")] for t in tariffs]
+    buttons.append([InlineKeyboardButton(text="◀️ Orqaga", callback_data="admin_tariffs")])
+    await call.message.edit_text("O'chirmoqchi bo'lgan tarifni tanlang:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("del_tariff:"))
+async def tariff_delete(call: CallbackQuery):
+    if not await check_admin(call.from_user.id, call):
+        return
+    tariff_id = int(call.data.split(":")[1])
+    await delete_tariff(tariff_id)
+    await call.answer("✅ Tarif o'chirildi!", show_alert=True)
+    await tariffs_list(call)
 
 
 # ── KANALLAR ──
@@ -284,18 +367,16 @@ async def channels_list(call: CallbackQuery):
     if not await check_admin(call.from_user.id, call):
         return
     channels = await get_channels()
-    text = "📋 <b>Majburiy obuna kanallari</b>\n\n"
+    text = "📋 <b>Kanallar</b>\n\n"
     if channels:
         for i, ch in enumerate(channels, 1):
             text += f"{i}. {ch['name']} — <code>{ch['id']}</code>\n"
     else:
-        text += "Hali kanal qo'shilmagan"
-
+        text += "Kanal yo'q"
     buttons = [[InlineKeyboardButton(text="➕ Kanal qo'shish", callback_data="channel_add")]]
     if channels:
         buttons.append([InlineKeyboardButton(text="🗑 Kanal o'chirish", callback_data="channel_remove")])
     buttons.append([InlineKeyboardButton(text="◀️ Orqaga", callback_data="admin_back")])
-
     await call.message.edit_text(text, parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
     await call.answer()
@@ -307,32 +388,22 @@ async def channel_add_start(call: CallbackQuery, state: FSMContext):
         return
     await state.set_state(AdminStates.add_channel)
     await call.message.edit_text(
-        "📢 Kanal ID yoki username yuboring:\n\n"
-        "Misol: <code>@kanalim</code> yoki <code>-1001234567890</code>\n\n"
-        "⚠️ Bot kanalda admin bo'lishi kerak!\n\n"
-        "/cancel — bekor qilish",
-        parse_mode="HTML", reply_markup=None
-    )
+        "📢 Kanal ID yoki username:\n\nMisol: <code>@kanal</code>\n\n⚠️ Bot admin bo'lishi kerak!\n\n/cancel",
+        parse_mode="HTML", reply_markup=None)
     await call.answer()
 
 
 @router.message(AdminStates.add_channel)
 async def channel_add_save(msg: Message, state: FSMContext):
     await state.clear()
-    channel_id = msg.text.strip()
     try:
-        chat = await msg.bot.get_chat(channel_id)
-        name = chat.title or channel_id
-        await add_channel(str(chat.id), name)
-        await msg.answer(f"✅ Kanal qo'shildi: <b>{name}</b>", parse_mode="HTML",
+        chat = await msg.bot.get_chat(msg.text.strip())
+        await add_channel(str(chat.id), chat.title or msg.text)
+        await msg.answer(f"✅ <b>{chat.title}</b> qo'shildi!", parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="◀️ Admin panel", callback_data="admin_back")]
-            ]))
-    except Exception as e:
-        await msg.answer(f"❌ Kanal topilmadi!\n\nBot kanalda admin bo'lishi kerak.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="◀️ Admin panel", callback_data="admin_back")]
-            ]))
+                [InlineKeyboardButton(text="◀️ Admin panel", callback_data="admin_back")]]))
+    except Exception:
+        await msg.answer("❌ Kanal topilmadi!")
 
 
 @router.callback_query(F.data == "channel_remove")
@@ -351,9 +422,8 @@ async def channel_remove_list(call: CallbackQuery):
 async def channel_delete(call: CallbackQuery):
     if not await check_admin(call.from_user.id, call):
         return
-    channel_id = call.data.split(":", 1)[1]
-    await remove_channel(channel_id)
-    await call.answer("✅ Kanal o'chirildi!", show_alert=True)
+    await remove_channel(call.data.split(":", 1)[1])
+    await call.answer("✅ O'chirildi!", show_alert=True)
     await channels_list(call)
 
 
@@ -363,13 +433,8 @@ async def admins_list(call: CallbackQuery):
     if not await check_admin(call.from_user.id, call):
         return
     admins = await get_admins()
-    text = "👥 <b>Adminlar ro'yxati</b>\n\n"
-    if admins:
-        for i, a in enumerate(admins, 1):
-            text += f"{i}. <code>{a}</code>\n"
-    else:
-        text += "Qo'shimcha admin yo'q"
-
+    text = "👥 <b>Adminlar</b>\n\n"
+    text += "\n".join(f"{i}. <code>{a}</code>" for i, a in enumerate(admins, 1)) if admins else "Admin yo'q"
     await call.message.edit_text(text, parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="➕ Admin qo'shish", callback_data="admin_add")],
@@ -384,12 +449,8 @@ async def admin_add_start(call: CallbackQuery, state: FSMContext):
     if not await check_admin(call.from_user.id, call):
         return
     await state.set_state(AdminStates.add_admin)
-    await call.message.edit_text(
-        "👤 Yangi admin Telegram ID sini yuboring:\n\n"
-        "Misol: <code>123456789</code>\n\n"
-        "/cancel — bekor qilish",
-        parse_mode="HTML", reply_markup=None
-    )
+    await call.message.edit_text("👤 Yangi admin ID:\n\nMisol: <code>123456789</code>\n\n/cancel",
+        parse_mode="HTML", reply_markup=None)
     await call.answer()
 
 
@@ -397,14 +458,12 @@ async def admin_add_start(call: CallbackQuery, state: FSMContext):
 async def admin_add_save(msg: Message, state: FSMContext):
     await state.clear()
     try:
-        new_admin_id = int(msg.text.strip())
-        await add_admin(new_admin_id)
-        await msg.answer(f"✅ Admin qo'shildi: <code>{new_admin_id}</code>", parse_mode="HTML",
+        await add_admin(int(msg.text.strip()))
+        await msg.answer(f"✅ Admin qo'shildi: <code>{msg.text.strip()}</code>", parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="◀️ Admin panel", callback_data="admin_back")]
-            ]))
+                [InlineKeyboardButton(text="◀️ Admin panel", callback_data="admin_back")]]))
     except ValueError:
-        await msg.answer("❌ Noto'g'ri ID format! Faqat raqam kiriting.")
+        await msg.answer("❌ Noto'g'ri ID!")
 
 
 @router.callback_query(F.data == "admin_remove")
@@ -426,9 +485,8 @@ async def admin_remove_list(call: CallbackQuery):
 async def admin_delete(call: CallbackQuery):
     if not await check_admin(call.from_user.id, call):
         return
-    admin_id = int(call.data.split(":", 1)[1])
-    await remove_admin(admin_id)
-    await call.answer(f"✅ Admin o'chirildi!", show_alert=True)
+    await remove_admin(int(call.data.split(":", 1)[1]))
+    await call.answer("✅ O'chirildi!", show_alert=True)
     await admins_list(call)
 
 
@@ -443,7 +501,5 @@ async def admin_back(call: CallbackQuery, state: FSMContext):
 @router.message(Command("cancel"))
 async def cancel_handler(msg: Message, state: FSMContext):
     await state.clear()
-    await msg.answer("❌ Bekor qilindi",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="◀️ Admin panel", callback_data="admin_back")]
-        ]))
+    await msg.answer("❌ Bekor qilindi", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Admin panel", callback_data="admin_back")]]))
