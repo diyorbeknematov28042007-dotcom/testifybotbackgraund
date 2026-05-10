@@ -11,11 +11,7 @@ _pool = None
 async def get_pool():
     global _pool
     if _pool is None:
-        _pool = await asyncpg.create_pool(
-            DATABASE_URL,
-            ssl="require",
-            statement_cache_size=0
-        )
+        _pool = await asyncpg.create_pool(DATABASE_URL, ssl="require", statement_cache_size=0)
     return _pool
 
 
@@ -52,11 +48,18 @@ async def init_db():
                 value TEXT
             )
         """)
-        await conn.execute("""
-            INSERT INTO settings (key, value)
-            VALUES ('welcome_text', 'Botga xush kelibsiz! 🎉'), ('welcome_buttons', '[]')
-            ON CONFLICT (key) DO NOTHING
-        """)
+        # Default settings
+        defaults = [
+            ('welcome_text', 'Assalamu alaykum! 👋\nEndi ta\'lim — oson va qulay! 📚✨\n\nBizning loyihalarimizdan foydalanish uchun:\n👇 Quyidagi tugmalardan birini tanlang yoki\n🚀 "Boshlash" tugmasi orqali mini ilovani oching'),
+            ('welcome_buttons', '[{"text": "Test Platformasi", "url": "https://testfyedu.online"}, {"text": "Test tekshirish uchun", "url": "https://testfyedu.online"}]'),
+            ('payment_text', '💳 To\'lov funksiyasi hali ishga tushmagan.\n\nLimit olish bo\'yicha adminga murojaat qiling:\n👤 @admin'),
+            ('payment_admin', '@admin'),
+        ]
+        for key, value in defaults:
+            await conn.execute("""
+                INSERT INTO settings (key, value) VALUES ($1, $2)
+                ON CONFLICT (key) DO NOTHING
+            """, key, value)
 
 
 async def add_user(user_id: int, username: str, full_name: str):
@@ -81,6 +84,24 @@ async def get_today_count() -> int:
         return await conn.fetchval("""
             SELECT COUNT(*) FROM users
             WHERE joined_at::date = CURRENT_DATE
+        """)
+
+
+async def get_week_count() -> int:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval("""
+            SELECT COUNT(*) FROM users
+            WHERE joined_at >= NOW() - INTERVAL '7 days'
+        """)
+
+
+async def get_month_count() -> int:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval("""
+            SELECT COUNT(*) FROM users
+            WHERE joined_at >= NOW() - INTERVAL '30 days'
         """)
 
 
