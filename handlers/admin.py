@@ -25,14 +25,13 @@ class AdminStates(StatesGroup):
     add_admin = State()
     edit_welcome_text = State()
     edit_welcome_buttons = State()
-    edit_payment_text = State()
-    edit_payment_admin = State()
     edit_card = State()
     add_tariff_name = State()
     add_tariff_desc = State()
     add_tariff_price = State()
     add_tariff_public = State()
     add_tariff_private = State()
+    edit_support = State()
 
 
 def admin_menu() -> InlineKeyboardMarkup:
@@ -42,6 +41,7 @@ def admin_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="✏️ Salomlashuv postini tahrirlash", callback_data="admin_welcome")],
         [InlineKeyboardButton(text="💳 Karta sozlamalari", callback_data="admin_card")],
         [InlineKeyboardButton(text="📦 Tariflarni boshqarish", callback_data="admin_tariffs")],
+        [InlineKeyboardButton(text="📞 Yordam username", callback_data="admin_support")],
         [InlineKeyboardButton(text="📋 Kanallar", callback_data="admin_channels")],
         [InlineKeyboardButton(text="👥 Adminlar", callback_data="admin_admins")],
     ])
@@ -241,6 +241,50 @@ async def edit_card_save(msg: Message, state: FSMContext):
         [InlineKeyboardButton(text="◀️ Admin panel", callback_data="admin_back")]]))
 
 
+# ── YORDAM ──
+@router.callback_query(F.data == "admin_support")
+async def support_menu(call: CallbackQuery):
+    if not await check_admin(call.from_user.id, call):
+        return
+    current = await get_setting("support_username", "@testifyN3_bot")
+    await call.message.edit_text(
+        f"📞 <b>Yordam username</b>\n\n"
+        f"Hozirgi: <b>{current}</b>\n\n"
+        f"Foydalanuvchilar 'Yordam' tugmasini bosganda shu username ko'rsatiladi.",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✏️ O'zgartirish", callback_data="edit_support")],
+            [InlineKeyboardButton(text="◀️ Orqaga", callback_data="admin_back")],
+        ]))
+    await call.answer()
+
+
+@router.callback_query(F.data == "edit_support")
+async def edit_support_start(call: CallbackQuery, state: FSMContext):
+    if not await check_admin(call.from_user.id, call):
+        return
+    await state.set_state(AdminStates.edit_support)
+    await call.message.edit_text(
+        "📞 Yangi yordam username yuboring:\n\n"
+        "Misol: <code>@username</code>\n\n"
+        "/cancel — bekor qilish",
+        parse_mode="HTML", reply_markup=None)
+    await call.answer()
+
+
+@router.message(AdminStates.edit_support)
+async def edit_support_save(msg: Message, state: FSMContext):
+    await state.clear()
+    username = msg.text.strip()
+    await set_setting("support_username", username)
+    await msg.answer(
+        f"✅ Yordam username yangilandi: <b>{username}</b>",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Admin panel", callback_data="admin_back")]
+        ]))
+
+
 # ── TARIFLAR ──
 @router.callback_query(F.data == "admin_tariffs")
 async def tariffs_list(call: CallbackQuery):
@@ -271,7 +315,7 @@ async def tariff_add_start(call: CallbackQuery, state: FSMContext):
     if not await check_admin(call.from_user.id, call):
         return
     await state.set_state(AdminStates.add_tariff_name)
-    await call.message.edit_text("📦 Tarif nomini yuboring:\n\nMisol: <b>Pro</b>\n\n/cancel",
+    await call.message.edit_text("📦 Tarif nomini yuboring:\n\nMisol: <b>Testify Nihol</b>\n\n/cancel",
         parse_mode="HTML", reply_markup=None)
     await call.answer()
 
@@ -280,14 +324,14 @@ async def tariff_add_start(call: CallbackQuery, state: FSMContext):
 async def tariff_name(msg: Message, state: FSMContext):
     await state.update_data(name=msg.text.strip())
     await state.set_state(AdminStates.add_tariff_desc)
-    await msg.answer("📝 Tavsifini yuboring:\n\nMisol: <b>5 ta ommaviy test</b>\n\n/cancel", parse_mode="HTML")
+    await msg.answer("📝 Tavsifini yuboring:\n\nMisol: <b>Birinchi qadamlar uchun</b>\n\n/cancel", parse_mode="HTML")
 
 
 @router.message(AdminStates.add_tariff_desc)
 async def tariff_desc(msg: Message, state: FSMContext):
     await state.update_data(description=msg.text.strip())
     await state.set_state(AdminStates.add_tariff_price)
-    await msg.answer("💰 Narxini so'mda yuboring:\n\nMisol: <b>50000</b>\n\n/cancel", parse_mode="HTML")
+    await msg.answer("💰 Narxini so'mda yuboring:\n\nMisol: <b>19900</b>\n\n/cancel", parse_mode="HTML")
 
 
 @router.message(AdminStates.add_tariff_price)
@@ -307,7 +351,7 @@ async def tariff_public(msg: Message, state: FSMContext):
         public = int(msg.text.strip())
         await state.update_data(public_limit=public)
         await state.set_state(AdminStates.add_tariff_private)
-        await msg.answer("📊 Nechta <b>shaxsiy</b> test limiti qo'shilsin?\n\nMisol: <b>2</b>\n\n/cancel", parse_mode="HTML")
+        await msg.answer("📊 Nechta <b>shaxsiy</b> test limiti qo'shilsin?\n\nMisol: <b>3</b>\n\n/cancel", parse_mode="HTML")
     except ValueError:
         await msg.answer("❌ Faqat raqam kiriting!")
 
