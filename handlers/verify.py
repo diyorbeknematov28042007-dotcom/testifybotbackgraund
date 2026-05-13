@@ -22,7 +22,7 @@ async def verify_start(msg: Message, state: FSMContext):
     await state.set_state(VerifyStates.waiting_code)
     await msg.answer(
         "🔐 <b>Akkauntni tasdiqlash</b>\n\n"
-        "Testify saytida ro'yxatdan o'tgandan so'ng sizga <b>6 xonali kod</b> berilgan.\n\n"
+        "Testify saytida ro'yxatdan otgandan so'ng sizga <b>6 xonali kod</b> berilgan.\n\n"
         "📝 Shu kodni yuboring:\n\n"
         "/cancel — bekor qilish",
         parse_mode="HTML"
@@ -35,7 +35,7 @@ async def verify_code(msg: Message, state: FSMContext):
 
     if not code.isdigit() or len(code) != 6:
         await msg.answer(
-            "❌ Kod noto'g'ri! 6 ta raqamdan iborat bo'lishi kerak.\n\nQaytadan kiriting:"
+            "❌ Kod notogri! 6 ta raqamdan iborat bo'lishi kerak.\n\nQaytadan kiriting:"
         )
         return
 
@@ -75,17 +75,18 @@ async def verify_code(msg: Message, state: FSMContext):
                     )
                 elif "muddati" in data.get("error", ""):
                     await msg.answer(
-                        "⏰ <b>Kodning muddati o'tgan!</b>\n\n"
-                        "Saytda qayta ro'yxatdan o'ting yoki yangi kod oling.",
+                        "⏰ <b>Kodning muddati otgan!</b>\n\n"
+                        "Saytda qayta ro'yxatdan oting yoki yangi kod oling.",
                         parse_mode="HTML",
                         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                             [InlineKeyboardButton(text="🌐 Saytga o'tish", url="https://testifyuz.online")]
                         ])
                     )
                 else:
+                    err_text = data.get('error', 'Noma`lum xato')
                     await msg.answer(
-                        f"❌ <b>Xato:</b> {data.get('error', 'Noma'lumxato')}\n\n"
-                        f"Kodni to'g'ri kiritganingizni tekshiring.",
+                        f"❌ <b>Xato:</b> {err_text}\n\n"
+                        "Kodni togri kiritganingizni tekshiring.",
                         parse_mode="HTML"
                     )
     except Exception as e:
