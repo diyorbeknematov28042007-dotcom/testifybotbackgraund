@@ -88,6 +88,7 @@ async def init_db():
             """, key, value)
 
 
+# ── USERS ──
 async def add_user(user_id: int, username: str, full_name: str):
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -128,6 +129,7 @@ async def get_all_users():
         return [r["user_id"] for r in rows]
 
 
+# ── ADMINS ──
 async def is_admin(user_id: int) -> bool:
     main_admin = int(os.getenv("ADMIN_ID", "0"))
     if user_id == main_admin:
@@ -157,6 +159,7 @@ async def get_admins():
         return [r["user_id"] for r in rows]
 
 
+# ── CHANNELS ──
 async def add_channel(channel_id: str, channel_name: str):
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -179,6 +182,7 @@ async def get_channels():
         return [{"id": r["channel_id"], "name": r["channel_name"]} for r in rows]
 
 
+# ── SETTINGS ──
 async def set_setting(key: str, value: str):
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -195,6 +199,7 @@ async def get_setting(key: str, default: str = "") -> str:
         return row["value"] if row else default
 
 
+# ── TARIFFS ──
 async def add_tariff(name: str, description: str, price: int, public_limit: int, private_limit: int):
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -228,6 +233,7 @@ async def delete_tariff(tariff_id: int):
         await conn.execute("UPDATE tariffs SET is_active = FALSE WHERE id = $1", tariff_id)
 
 
+# ── PAYMENTS ──
 async def create_payment(user_id: int, username: str, teacher_id: str, tariff_id: int, tariff_name: str, amount: int):
     pool = await get_pool()
     async with pool.acquire() as conn:
